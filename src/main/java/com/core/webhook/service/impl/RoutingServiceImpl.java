@@ -18,7 +18,6 @@ public class RoutingServiceImpl implements RoutingService {
     @Override
     public void processWebhook(HttpServletRequest request, HttpServletResponse response, String payload, String provider) {
         ConnectorEnum connector = ConnectorEnum.fromDisplayName(provider);
-        System.out.println("test: "+connector.getName());
         routeWebhook(connector, request, response, payload);
     }
 

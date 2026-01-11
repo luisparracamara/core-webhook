@@ -27,4 +27,15 @@ public class Utils {
             throw new InternalServerException("Failed to serialize object to JSON: "+ e);
         }
     }
+
+    public <T> T fromJson(String json, Class<T> object) {
+        try {
+            return mapper.readValue(json, object);
+        } catch (Exception e) {
+            log.error("Failed to deserialize JSON to {}", object.getSimpleName(), e);
+            throw new InternalServerException(
+                    "Failed to deserialize JSON to " + object.getSimpleName(), e
+            );
+        }
+    }
 }

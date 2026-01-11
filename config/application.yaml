@@ -11,6 +11,19 @@ logging:
 spring:
   application:
     name: core-webhook
+  cloud:
+    openfeign:
+      client:
+        config:
+          mercadoPago:
+            url: https://api.mercadopago.com
+            connectTimeout: 5000
+            readTimeout: 10000
+            loggerLevel: FULL
+          default:
+            connectTimeout: 5000
+            readTimeout: 10000
+            loggerLevel: FULL
 
   # 1. Datasource Configuration
   datasource:
