@@ -18,7 +18,7 @@ public class MetadataServiceImpl implements MetadataService {
     }
 
     @Override
-    public Map<String, String> getGatewayMetadata(String connectorName) {
+    public Map<String, String> retrieveGatewayMetadata(String connectorName) {
         return metadataRepository.findByGatewayConnectorName(connectorName)
                 .stream()
                 .collect(Collectors.toMap(

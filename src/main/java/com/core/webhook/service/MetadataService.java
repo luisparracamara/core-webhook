@@ -4,6 +4,6 @@ import java.util.Map;
 
 public interface MetadataService {
 
-    Map<String, String> getGatewayMetadata(String connectorName);
+    Map<String, String> retrieveGatewayMetadata(String connectorName);
 
 }

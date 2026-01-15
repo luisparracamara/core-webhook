@@ -36,7 +36,8 @@ public class MercadoPagoCheckoutPro implements ConnectorService {
 
     private final PaymentService paymentService;
 
-    public MercadoPagoCheckoutPro(Utils utils, MercadoPagoClient mercadoPagoClient, MetadataService metadataService, PaymentService paymentService) {
+    public MercadoPagoCheckoutPro(Utils utils, MercadoPagoClient mercadoPagoClient, MetadataService metadataService,
+                                  PaymentService paymentService) {
         this.utils = utils;
         this.mercadoPagoClient = mercadoPagoClient;
         this.metadataService = metadataService;
@@ -67,7 +68,7 @@ public class MercadoPagoCheckoutPro implements ConnectorService {
             log.debug("Payment ID: {}", paymentId.get());
 
             //obtener metadata para el accestoken
-            Map<String, String> gatewayMetadata = metadataService.getGatewayMetadata(getConnector().getName());
+            Map<String, String> gatewayMetadata = metadataService.retrieveGatewayMetadata(getConnector().getName());
             log.debug("Gateway Metadata: {}", gatewayMetadata);
 
             String accessToken = "Bearer " +gatewayMetadata.get(GatewayMetadataEnum.ACCESS_TOKEN.name());

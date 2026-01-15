@@ -28,8 +28,8 @@ public class Controller {
     }
 
     @PostMapping(path = "/v1/webhook/{provider}", consumes = {MediaType.APPLICATION_JSON_VALUE, MediaType.TEXT_PLAIN_VALUE} )
-    public ResponseEntity<Void> webhook(HttpServletRequest request, HttpServletResponse response, @PathVariable @NotNull String provider,
-                                  @RequestBody @Nullable String payload) {
+    public ResponseEntity<Void> webhook(HttpServletRequest request, HttpServletResponse response,
+                                        @PathVariable @NotNull String provider, @RequestBody @Nullable String payload) {
         log.debug("Request CONTROLLER provider: {} payload: {}", provider, payload);
         routingService.processWebhook(request, response, payload, provider);
         return ResponseEntity.ok().build();
