@@ -73,4 +73,8 @@ public class PaymentEntity {
     @JoinColumn(name = "fk_pm_payer")
     private PayerEntity payerEntity;
 
+    @OneToOne
+    @JoinColumn(name = "fk_pm_fee_id")
+    private PaymentFeeEntity paymentFeeEntity;
+
 }

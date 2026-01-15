@@ -86,7 +86,7 @@ public class MercadoPagoCheckoutPro implements ConnectorService {
                 //hacer el cambio de estatus en bd y tambien guardar el getPaymentMethodId y el getPaymentTypeIdPaymentCashinEntity
                 paymentService.updatePaymentStatusByExternalReference(payment.getExternalReference(),
                         PaymentStatusEnum.APPROVED, payment.getPaymentTypeId());
-                log.info("Connector {} Payment updated", getConnector());
+                log.info("[MercadoPagoCheckoutPro] Connector {} Payment updated", getConnector());
             }
 
         }
