@@ -1,10 +1,10 @@
 package com.core.webhook.service;
 
 import jakarta.servlet.http.HttpServletRequest;
-import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.http.ResponseEntity;
 
 public interface RoutingService {
 
-    void processWebhook(HttpServletRequest request, HttpServletResponse response, String payload, String provider);
+    ResponseEntity<Void> processWebhook(HttpServletRequest request, String payload, String provider);
 
 }

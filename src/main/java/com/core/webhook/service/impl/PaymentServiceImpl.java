@@ -1,14 +1,20 @@
 package com.core.webhook.service.impl;
 
+import com.core.webhook.constant.ConnectorEnum;
 import com.core.webhook.constant.PaymentFeeMerchantEnum;
 import com.core.webhook.constant.PaymentStatusEnum;
+import com.core.webhook.constant.WebhookEventStatusEnum;
 import com.core.webhook.entity.MerchantLedgerEntity;
 import com.core.webhook.entity.PaymentCashinEntity;
 import com.core.webhook.entity.PaymentEntity;
+import com.core.webhook.entity.WebhookEventEntity;
 import com.core.webhook.repository.MerchantLedgerRepository;
 import com.core.webhook.repository.PaymentCashinRepository;
 import com.core.webhook.repository.PaymentRepository;
+import com.core.webhook.repository.WebhookEventRepository;
 import com.core.webhook.service.PaymentService;
+import com.core.webhook.utils.Utils;
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -16,6 +22,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
@@ -25,6 +32,8 @@ public class PaymentServiceImpl implements PaymentService {
     private final PaymentCashinRepository paymentCashinRepository;
     private final PaymentRepository paymentRepository;
     private final MerchantLedgerRepository merchantLedgerRepository;
+    private final WebhookEventRepository webhookEventRepository;
+    private final Utils utils;
 
     @Override
     @Transactional
@@ -43,6 +52,22 @@ public class PaymentServiceImpl implements PaymentService {
             merchantLedgerRepository.save(buildMerchantLedger(payment, lastBalance));
             log.info("[PaymentService] Payment status updated and ledger created");
         }
+    }
+
+    @Override
+    public void createWebhookEvent(ConnectorEnum connector, String transactionId, String payload, Map<String, String> headers) {
+        LocalDateTime now = LocalDateTime.now();
+        WebhookEventEntity webhookEventEntity = WebhookEventEntity.builder()
+                .connector(connector)
+                .transactionId(transactionId)
+                .payload(payload)
+                .headers(utils.toJson(headers))
+                .retryCount(0)
+                .status(WebhookEventStatusEnum.FOR_REVIEW)
+                .createdAt(now)
+                .updatedAt(now)
+                .build();
+        webhookEventRepository.save(webhookEventEntity);
     }
 
     private PaymentEntity updatePaymentStatus(PaymentEntity payment, PaymentStatusEnum status, String paymentType) {

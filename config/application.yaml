@@ -41,3 +41,22 @@ spring:
       hibernate:
         # Specifies the MySQL Dialect for Hibernate
         dialect: org.hibernate.dialect.MySQLDialect
+
+jobs:
+  webhook-event:
+    cron: "0 * * * *"
+    #cron: "0 * * * * *"
+
+resilience4j:
+  circuitbreaker:
+    instances:
+      mercadoPago:
+        slidingWindowSize: 10
+        minimumNumberOfCalls: 5
+        failureRateThreshold: 50
+        waitDurationInOpenState: 30s
+        permittedNumberOfCallsInHalfOpenState: 3
+        automaticTransitionFromOpenToHalfOpenEnabled: true
+        ignoreExceptions:
+          - feign.FeignException$NotFound
+          - feign.FeignException$BadRequest

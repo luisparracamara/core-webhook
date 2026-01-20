@@ -3,7 +3,7 @@ package com.core.webhook.service.impl;
 import com.core.webhook.constant.ConnectorEnum;
 import com.core.webhook.service.RoutingService;
 import jakarta.servlet.http.HttpServletRequest;
-import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -16,15 +16,15 @@ public class RoutingServiceImpl implements RoutingService {
     }
 
     @Override
-    public void processWebhook(HttpServletRequest request, HttpServletResponse response, String payload, String provider) {
+    public ResponseEntity<Void> processWebhook(HttpServletRequest request, String payload, String provider) {
         ConnectorEnum connector = ConnectorEnum.fromDisplayName(provider);
-        routeWebhook(connector, request, response, payload);
+        return routeWebhook(connector, request, payload);
     }
 
-    private void routeWebhook(ConnectorEnum connector, HttpServletRequest request, HttpServletResponse response, String payload) {
-        paymentRedirectorResolver
+    private ResponseEntity<Void> routeWebhook(ConnectorEnum connector, HttpServletRequest request, String payload) {
+        return paymentRedirectorResolver
                 .resolve(connector)
-                .processWebhook(request, response, payload);
+                .processWebhook(request, payload);
     }
 
 }

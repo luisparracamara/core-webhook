@@ -4,15 +4,18 @@ import com.core.webhook.client.MercadoPagoClient;
 import com.core.webhook.constant.ConnectorEnum;
 import com.core.webhook.constant.GatewayMetadataEnum;
 import com.core.webhook.constant.PaymentStatusEnum;
+import com.core.webhook.exception.InternalServerException;
 import com.core.webhook.service.ConnectorService;
 import com.core.webhook.service.MetadataService;
 import com.core.webhook.service.PaymentService;
 import com.core.webhook.utils.Utils;
 import com.core.webhook.webhook.mercadopago.model.MercadoPagoWebhookEvent;
 import com.core.webhook.webhook.mercadopago.model.PaymentMercadoPagoResponse;
+import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
+import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import jakarta.servlet.http.HttpServletRequest;
-import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 
 import javax.crypto.Mac;
@@ -50,16 +53,23 @@ public class MercadoPagoCheckoutPro implements ConnectorService {
     }
 
     @Override
-    public void processWebhook(HttpServletRequest request, HttpServletResponse response, String payload) {
+    public ResponseEntity<Void> processWebhook(HttpServletRequest request, String payload) {
 
         if (request.getParameter("data.id") == null) {
-            log.info("Skipping signature validation (no data.id)");
-            return;
+            log.info("[MercadoPagoCheckoutPro] Skipping signature validation (no data.id)");
+            return ResponseEntity.ok().build();
         }
 
         log.debug("[MercadoPagoCheckoutPro] Request: {}", request);
-        log.debug("[MercadoPagoCheckoutPro] Response: {}", response);
         log.debug("[MercadoPagoCheckoutPro] Payload: {}", payload);
+
+        return processTransaction(utils.extractHeaders(request), payload);
+
+    }
+
+    @Override
+    public ResponseEntity<Void> processTransaction(Map<String, String> headers, String payload) {
+
 
         MercadoPagoWebhookEvent mercadoPagoWebhookEvent = utils.fromJson(payload, MercadoPagoWebhookEvent.class);
         Optional<String> paymentId = extractPaymentId(mercadoPagoWebhookEvent);
@@ -71,29 +81,41 @@ public class MercadoPagoCheckoutPro implements ConnectorService {
             Map<String, String> gatewayMetadata = metadataService.retrieveGatewayMetadata(getConnector().getName());
             log.debug("Gateway Metadata: {}", gatewayMetadata);
 
-            String accessToken = "Bearer " +gatewayMetadata.get(GatewayMetadataEnum.ACCESS_TOKEN.name());
-            PaymentMercadoPagoResponse payment = mercadoPagoClient.getPayment(Long.valueOf(paymentId.get()), accessToken,
-                    UUID.randomUUID().toString());
+            String accessToken = "Bearer " + gatewayMetadata.get(GatewayMetadataEnum.ACCESS_TOKEN.name());
+            Optional<PaymentMercadoPagoResponse> paymentMercadoPagoResponse = getPayment(Long.valueOf(paymentId.get()),
+                    accessToken, UUID.randomUUID().toString());
 
-            if(payment.getStatus().equalsIgnoreCase("approved") &&
+            if (paymentMercadoPagoResponse.isEmpty()) {
+                paymentService.createWebhookEvent(getConnector(), paymentId.get(), payload, headers);
+                return ResponseEntity.ok().build();
+            }
+
+            PaymentMercadoPagoResponse payment = paymentMercadoPagoResponse.get();
+
+            if (payment.getStatus().equalsIgnoreCase("approved") &&
                     payment.getStatusDetail().equalsIgnoreCase("accredited")) {
-                log.info("Payment: {}", payment.getStatus());
-                log.info("Payment: {}", payment.getStatusDetail());
-                //visa
-                log.info("Payment: {}", payment.getPaymentMethodId());
-                //credit_card
-                log.info("Payment: {}", payment.getPaymentTypeId());
+                log.info("[MercadoPagoCheckoutPro] Payment: {}", payment);
 
                 //hacer el cambio de estatus en bd y tambien guardar el getPaymentMethodId y el getPaymentTypeIdPaymentCashinEntity
                 paymentService.updatePaymentStatusByExternalReference(payment.getExternalReference(),
                         PaymentStatusEnum.APPROVED, payment.getPaymentTypeId());
                 log.info("[MercadoPagoCheckoutPro] Connector {} Payment updated", getConnector());
             }
-
         }
-
+        return ResponseEntity.ok().build();
     }
 
+
+    @CircuitBreaker(name = "mercadoPago")
+    private Optional<PaymentMercadoPagoResponse> getPayment(Long paymentId, String accessToken, String idempotencyKey) {
+        try {
+            return Optional.of(mercadoPagoClient.getPayment(paymentId, accessToken, idempotencyKey));
+        } catch (CallNotPermittedException ex) {
+            log.error("[MercadoPagoCheckoutPro] Error trying to get payment from connector: {}, error: {}",
+                    getConnector(), ex.getMessage());
+            return Optional.empty();
+        }
+    }
 
     private Optional<String> extractPaymentId(MercadoPagoWebhookEvent mercadoPagoWebhookEvent) {
         if ("payment".equals(mercadoPagoWebhookEvent.getType()) && mercadoPagoWebhookEvent.getData() != null) {
