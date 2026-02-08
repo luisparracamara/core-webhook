@@ -28,7 +28,7 @@ public class Gateway {
     private String connectorName;
 
     @ToString.Include
-    private String merchant;
+    private Long merchantId;
 
     @OneToMany(mappedBy = "gateway", fetch = FetchType.LAZY)
     private List<GatewayMetadataEntity> metadata;

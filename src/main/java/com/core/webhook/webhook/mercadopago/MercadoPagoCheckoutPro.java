@@ -4,7 +4,6 @@ import com.core.webhook.client.MercadoPagoClient;
 import com.core.webhook.constant.ConnectorEnum;
 import com.core.webhook.constant.GatewayMetadataEnum;
 import com.core.webhook.constant.PaymentStatusEnum;
-import com.core.webhook.exception.InternalServerException;
 import com.core.webhook.service.ConnectorService;
 import com.core.webhook.service.MetadataService;
 import com.core.webhook.service.PaymentService;
@@ -70,7 +69,6 @@ public class MercadoPagoCheckoutPro implements ConnectorService {
     @Override
     public ResponseEntity<Void> processTransaction(Map<String, String> headers, String payload) {
 
-
         MercadoPagoWebhookEvent mercadoPagoWebhookEvent = utils.fromJson(payload, MercadoPagoWebhookEvent.class);
         Optional<String> paymentId = extractPaymentId(mercadoPagoWebhookEvent);
 
@@ -104,7 +102,6 @@ public class MercadoPagoCheckoutPro implements ConnectorService {
         }
         return ResponseEntity.ok().build();
     }
-
 
     @CircuitBreaker(name = "mercadoPago")
     private Optional<PaymentMercadoPagoResponse> getPayment(Long paymentId, String accessToken, String idempotencyKey) {

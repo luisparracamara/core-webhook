@@ -4,7 +4,6 @@ import com.core.webhook.service.RoutingService;
 import com.core.webhook.utils.Utils;
 import jakarta.annotation.Nullable;
 import jakarta.servlet.http.HttpServletRequest;
-import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.constraints.NotNull;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
