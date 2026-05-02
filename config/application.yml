@@ -42,9 +42,14 @@ spring:
         # Specifies the MySQL Dialect for Hibernate
         dialect: org.hibernate.dialect.MySQLDialect
 
+mercadopago:
+  webhook:
+    secret: 4fbabe4529465841943d3ca0500c88e595288c6cf386e0ec60f6dbdb03d16a89
+    validate-signature: false
+
 jobs:
   webhook-event:
-    cron: "0 * * * *"
+    cron: "0 * * * * *"
     #cron: "0 * * * * *"
 
 resilience4j:

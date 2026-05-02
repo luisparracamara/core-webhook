@@ -16,4 +16,14 @@ public interface MetadataRepository extends JpaRepository<GatewayMetadataEntity,
             "WHERE g.connectorName = :connectorName")
     List<GatewayMetadataEntity> findByGatewayConnectorName(@Param("connectorName") String connectorName);
 
+    @Query("SELECT gme FROM GatewayMetadataEntity gme " +
+            "JOIN gme.gateway g " +
+            "JOIN GatewayMetadataEntity uid ON uid.gateway = g " +
+            "WHERE g.connectorName = :connectorName " +
+            "AND uid.metaKey = 'USER_ID' " +
+            "AND uid.metaValue = :userId")
+    List<GatewayMetadataEntity> findByConnectorNameAndUserId(
+            @Param("connectorName") String connectorName,
+            @Param("userId") String userId);
+
 }

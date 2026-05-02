@@ -1,5 +1,6 @@
 package com.core.webhook.client;
 
+import com.core.webhook.webhook.mercadopago.model.OrderMercadoPagoResponse;
 import com.core.webhook.webhook.mercadopago.model.PaymentMercadoPagoResponse;
 import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -13,5 +14,10 @@ public interface MercadoPagoClient {
     PaymentMercadoPagoResponse getPayment(@PathVariable("id") Long paymentId,
                                           @RequestHeader("Authorization") String authorization,
                                           @RequestHeader("x-idempotency-key") String idempotencyKey);
+
+    @GetMapping("/v1/orders/{id}")
+    OrderMercadoPagoResponse getOrder(@PathVariable("id") String orderId,
+                                      @RequestHeader("Authorization") String authorization,
+                                      @RequestHeader("x-idempotency-key") String idempotencyKey);
 
 }

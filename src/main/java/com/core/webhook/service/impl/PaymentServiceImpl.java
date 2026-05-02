@@ -44,13 +44,21 @@ public class PaymentServiceImpl implements PaymentService {
         PaymentEntity payment = paymentCashin.getPaymentEntity();
 
         if (payment == null) {
-            log.debug("[PaymentService] No payment was found with external reference: {}", externalReference);
+            log.warn("[PaymentService] No payment found for externalReference={}", externalReference);
         } else if (!payment.getStatus().equals(PaymentStatusEnum.APPROVED)) {
+            PaymentStatusEnum previousStatus = payment.getStatus();
             paymentRepository.save(updatePaymentStatus(payment, status, paymentType));
-            BigDecimal lastBalance = merchantLedgerRepository.findLastBalanceForUpdate(payment.getMerchant().getId())
-                    .orElse(BigDecimal.ZERO);
-            merchantLedgerRepository.save(buildMerchantLedger(payment, lastBalance));
-            log.info("[PaymentService] Payment status updated and ledger created");
+            log.info("[PaymentService] paymentId={} externalReference={} status {} -> {} paymentType={}",
+                    payment.getId(), externalReference, previousStatus, status, paymentType);
+            if (PaymentStatusEnum.APPROVED.equals(status)) {
+                BigDecimal lastBalance = merchantLedgerRepository.findLastBalanceForUpdate(payment.getMerchant().getId())
+                        .orElse(BigDecimal.ZERO);
+                merchantLedgerRepository.save(buildMerchantLedger(payment, lastBalance));
+                log.info("[PaymentService] Ledger created for paymentId={} merchantId={}", payment.getId(), payment.getMerchant().getId());
+            }
+        } else {
+            log.info("[PaymentService] paymentId={} externalReference={} already APPROVED, skipping",
+                    payment.getId(), externalReference);
         }
     }
 

@@ -12,7 +12,8 @@ public enum ConnectorEnum {
     STRIPE("Stripe"),
     MERCADOPAGO("Mercado Pago"),
     CONNECTOR("connector"),
-    MERCADO_PAGO_CHECKOUT_PRO("MercadoPagoCheckoutPro");
+    MERCADO_PAGO_CHECKOUT_PRO("MercadoPagoCheckoutPro"),
+    MERCADO_PAGO_CHECKOUT_API("MercadoPagoCheckoutApi");
 
     private final String name;
 

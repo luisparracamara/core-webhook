@@ -75,8 +75,8 @@ public class MercadoPagoCheckoutPro implements ConnectorService {
         if (paymentId.isPresent()) {
             log.debug("Payment ID: {}", paymentId.get());
 
-            //obtener metadata para el accestoken
-            Map<String, String> gatewayMetadata = metadataService.retrieveGatewayMetadata(getConnector().getName());
+            String userId = String.valueOf(mercadoPagoWebhookEvent.getUserId());
+            Map<String, String> gatewayMetadata = metadataService.retrieveGatewayMetadataByUserId(getConnector().getName(), userId);
             log.debug("Gateway Metadata: {}", gatewayMetadata);
 
             String accessToken = "Bearer " + gatewayMetadata.get(GatewayMetadataEnum.ACCESS_TOKEN.name());

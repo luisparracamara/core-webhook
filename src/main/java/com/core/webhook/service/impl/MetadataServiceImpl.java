@@ -26,4 +26,14 @@ public class MetadataServiceImpl implements MetadataService {
                         GatewayMetadataEntity::getMetaValue
                 ));
     }
+
+    @Override
+    public Map<String, String> retrieveGatewayMetadataByUserId(String connectorName, String userId) {
+        return metadataRepository.findByConnectorNameAndUserId(connectorName, userId)
+                .stream()
+                .collect(Collectors.toMap(
+                        GatewayMetadataEntity::getMetaKey,
+                        GatewayMetadataEntity::getMetaValue
+                ));
+    }
 }
