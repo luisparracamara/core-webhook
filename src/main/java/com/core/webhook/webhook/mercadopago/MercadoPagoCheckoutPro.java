@@ -1,6 +1,6 @@
 package com.core.webhook.webhook.mercadopago;
 
-import com.core.webhook.client.MercadoPagoClient;
+import com.core.webhook.client.MercadoPagoApiGateway;
 import com.core.webhook.constant.ConnectorEnum;
 import com.core.webhook.constant.GatewayMetadataEnum;
 import com.core.webhook.constant.PaymentStatusEnum;
@@ -10,18 +10,12 @@ import com.core.webhook.service.PaymentService;
 import com.core.webhook.utils.Utils;
 import com.core.webhook.webhook.mercadopago.model.MercadoPagoWebhookEvent;
 import com.core.webhook.webhook.mercadopago.model.PaymentMercadoPagoResponse;
-import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
-import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 
-import javax.crypto.Mac;
-import javax.crypto.spec.SecretKeySpec;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -31,19 +25,24 @@ import java.util.UUID;
 public class MercadoPagoCheckoutPro implements ConnectorService {
 
     private final Utils utils;
-
-    private final MercadoPagoClient mercadoPagoClient;
-
+    private final MercadoPagoApiGateway mercadoPagoApiGateway;
     private final MetadataService metadataService;
-
     private final PaymentService paymentService;
+    private final String webhookSecret;
+    private final boolean validateSignature;
 
-    public MercadoPagoCheckoutPro(Utils utils, MercadoPagoClient mercadoPagoClient, MetadataService metadataService,
-                                  PaymentService paymentService) {
+    public MercadoPagoCheckoutPro(Utils utils,
+                                  MercadoPagoApiGateway mercadoPagoApiGateway,
+                                  MetadataService metadataService,
+                                  PaymentService paymentService,
+                                  @Value("${mercadopago.webhook.secret}") String webhookSecret,
+                                  @Value("${mercadopago.webhook.validate-signature:true}") boolean validateSignature) {
         this.utils = utils;
-        this.mercadoPagoClient = mercadoPagoClient;
+        this.mercadoPagoApiGateway = mercadoPagoApiGateway;
         this.metadataService = metadataService;
         this.paymentService = paymentService;
+        this.webhookSecret = webhookSecret;
+        this.validateSignature = validateSignature;
     }
 
     @Override
@@ -53,158 +52,78 @@ public class MercadoPagoCheckoutPro implements ConnectorService {
 
     @Override
     public ResponseEntity<Void> processWebhook(HttpServletRequest request, String payload) {
-
-        if (request.getParameter("data.id") == null) {
-            log.info("[MercadoPagoCheckoutPro] Skipping signature validation (no data.id)");
+        String dataId = request.getParameter("data.id");
+        if (dataId == null) {
+            log.info("[MercadoPagoCheckoutPro] Skipping: no data.id");
             return ResponseEntity.ok().build();
         }
 
-        log.debug("[MercadoPagoCheckoutPro] Request: {}", request);
-        log.debug("[MercadoPagoCheckoutPro] Payload: {}", payload);
+        if (validateSignature && !MercadoPagoSignatureValidator.isValid(request, webhookSecret)) {
+            log.warn("[MercadoPagoCheckoutPro] Invalid signature for data.id={}", dataId);
+            return ResponseEntity.ok().build();
+        }
 
         return processTransaction(utils.extractHeaders(request), payload);
-
     }
 
     @Override
     public ResponseEntity<Void> processTransaction(Map<String, String> headers, String payload) {
+        MercadoPagoWebhookEvent event = utils.fromJson(payload, MercadoPagoWebhookEvent.class);
+        Optional<String> paymentId = extractPaymentId(event);
 
-        MercadoPagoWebhookEvent mercadoPagoWebhookEvent = utils.fromJson(payload, MercadoPagoWebhookEvent.class);
-        Optional<String> paymentId = extractPaymentId(mercadoPagoWebhookEvent);
-
-        if (paymentId.isPresent()) {
-            log.debug("Payment ID: {}", paymentId.get());
-
-            String userId = String.valueOf(mercadoPagoWebhookEvent.getUserId());
-            Map<String, String> gatewayMetadata = metadataService.retrieveGatewayMetadataByUserId(getConnector().getName(), userId);
-            log.debug("Gateway Metadata: {}", gatewayMetadata);
-
-            String accessToken = "Bearer " + gatewayMetadata.get(GatewayMetadataEnum.ACCESS_TOKEN.name());
-            Optional<PaymentMercadoPagoResponse> paymentMercadoPagoResponse = getPayment(Long.valueOf(paymentId.get()),
-                    accessToken, UUID.randomUUID().toString());
-
-            if (paymentMercadoPagoResponse.isEmpty()) {
-                paymentService.createWebhookEvent(getConnector(), paymentId.get(), payload, headers);
-                return ResponseEntity.ok().build();
-            }
-
-            PaymentMercadoPagoResponse payment = paymentMercadoPagoResponse.get();
-
-            if (payment.getStatus().equalsIgnoreCase("approved") &&
-                    payment.getStatusDetail().equalsIgnoreCase("accredited")) {
-                log.info("[MercadoPagoCheckoutPro] Payment: {}", payment);
-
-                //hacer el cambio de estatus en bd y tambien guardar el getPaymentMethodId y el getPaymentTypeIdPaymentCashinEntity
-                paymentService.updatePaymentStatusByExternalReference(payment.getExternalReference(),
-                        PaymentStatusEnum.APPROVED, payment.getPaymentTypeId());
-                log.info("[MercadoPagoCheckoutPro] Connector {} Payment updated", getConnector());
-            }
+        if (paymentId.isEmpty()) {
+            log.info("[MercadoPagoCheckoutPro] Skipping: type={} is not 'payment' or data is null", event.getType());
+            return ResponseEntity.ok().build();
         }
+
+        log.info("[MercadoPagoCheckoutPro] Processing paymentId={} userId={}", paymentId.get(), event.getUserId());
+
+        String userId = String.valueOf(event.getUserId());
+        String metadataConnector = ConnectorEnum.MERCADO_PAGO_CHECKOUT_API.getName();
+        Map<String, String> gatewayMetadata = metadataService.retrieveGatewayMetadataByUserId(metadataConnector, userId);
+
+        if (gatewayMetadata.isEmpty()) {
+            log.error("[MercadoPagoCheckoutPro] No gateway metadata found for connector={} userId={} — cannot process paymentId={}",
+                    metadataConnector, userId, paymentId.get());
+            return ResponseEntity.ok().build();
+        }
+
+        String accessToken = "Bearer " + gatewayMetadata.get(GatewayMetadataEnum.ACCESS_TOKEN.name());
+
+        Optional<PaymentMercadoPagoResponse> paymentResponse = mercadoPagoApiGateway.getPayment(
+                Long.valueOf(paymentId.get()), accessToken, UUID.randomUUID().toString());
+
+        if (paymentResponse.isEmpty()) {
+            log.warn("[MercadoPagoCheckoutPro] Could not fetch payment paymentId={} — queuing for retry", paymentId.get());
+            paymentService.createWebhookEvent(getConnector(), paymentId.get(), payload, headers);
+            return ResponseEntity.ok().build();
+        }
+
+        PaymentMercadoPagoResponse payment = paymentResponse.get();
+        log.info("[MercadoPagoCheckoutPro] paymentId={} externalRef={} status={} statusDetail={}",
+                paymentId.get(), payment.getExternalReference(), payment.getStatus(), payment.getStatusDetail());
+
+        if ("approved".equalsIgnoreCase(payment.getStatus()) &&
+                "accredited".equalsIgnoreCase(payment.getStatusDetail())) {
+            paymentService.updatePaymentStatusByExternalReference(
+                    payment.getExternalReference(), PaymentStatusEnum.APPROVED, payment.getPaymentTypeId());
+        } else if ("rejected".equalsIgnoreCase(payment.getStatus()) ||
+                   "cancelled".equalsIgnoreCase(payment.getStatus())) {
+            paymentService.updatePaymentStatusByExternalReference(
+                    payment.getExternalReference(), PaymentStatusEnum.CANCELLED, null);
+        } else {
+            log.info("[MercadoPagoCheckoutPro] paymentId={} status={} — no action taken, waiting for final status",
+                    paymentId.get(), payment.getStatus());
+        }
+
         return ResponseEntity.ok().build();
     }
 
-    @CircuitBreaker(name = "mercadoPago")
-    private Optional<PaymentMercadoPagoResponse> getPayment(Long paymentId, String accessToken, String idempotencyKey) {
-        try {
-            return Optional.of(mercadoPagoClient.getPayment(paymentId, accessToken, idempotencyKey));
-        } catch (CallNotPermittedException ex) {
-            log.error("[MercadoPagoCheckoutPro] Error trying to get payment from connector: {}, error: {}",
-                    getConnector(), ex.getMessage());
-            return Optional.empty();
-        }
-    }
-
-    private Optional<String> extractPaymentId(MercadoPagoWebhookEvent mercadoPagoWebhookEvent) {
-        if ("payment".equals(mercadoPagoWebhookEvent.getType()) && mercadoPagoWebhookEvent.getData() != null) {
-            return Optional.of(mercadoPagoWebhookEvent.getData().getId());
+    private Optional<String> extractPaymentId(MercadoPagoWebhookEvent event) {
+        if ("payment".equals(event.getType()) && event.getData() != null) {
+            return Optional.of(event.getData().getId());
         }
         return Optional.empty();
-    }
-
-    private static String hmacSha256(String data, String secret) throws Exception {
-        Mac mac = Mac.getInstance("HmacSHA256");
-        SecretKeySpec keySpec = new SecretKeySpec(
-                secret.getBytes(StandardCharsets.UTF_8),
-                "HmacSHA256"
-        );
-        mac.init(keySpec);
-
-        byte[] rawHmac = mac.doFinal(data.getBytes(StandardCharsets.UTF_8));
-        return bytesToHex(rawHmac);
-    }
-
-    private static String bytesToHex(byte[] bytes) {
-        StringBuilder hex = new StringBuilder(bytes.length * 2);
-        for (byte b : bytes) {
-            hex.append(String.format("%02x", b));
-        }
-        return hex.toString();
-    }
-
-    private static Map<String, String> parseSignature(String xSignature) {
-        Map<String, String> map = new HashMap<>();
-
-        String[] parts = xSignature.split(",");
-        for (String part : parts) {
-            String[] keyValue = part.split("=", 2);
-            if (keyValue.length == 2) {
-                map.put(keyValue[0].trim(), keyValue[1].trim());
-            }
-        }
-        return map;
-    }
-
-    //esto para checkout api
-
-    public static boolean isValid(HttpServletRequest request, String secret) {
-
-        String xSignature = request.getHeader("x-signature");
-        String xRequestId = request.getHeader("x-request-id");
-        String dataId = request.getParameter("data.id");
-
-        if (xSignature == null || xRequestId == null || dataId == null) {
-            return false;
-        }
-
-        // 1️⃣ Parse x-signature
-        Map<String, String> signatureParts = parseSignature(xSignature);
-
-        String ts = signatureParts.get("ts");
-        String originalHash = signatureParts.get("v1");
-
-        if (ts == null || originalHash == null) {
-            return false;
-        }
-
-        // 2️⃣ Build manifest
-        String manifest = String.format(
-                "id:%s;request-id:%s;ts:%s;",
-                dataId.toLowerCase(),
-                xRequestId,
-                ts
-        );
-
-        log.debug("x-signature      = {}", xSignature);
-        log.debug("x-request-id     = {}", xRequestId);
-        log.debug("data.id (query)  = {}", dataId);
-        log.debug("ts               = {}", ts);
-        log.debug("manifest   = {}", manifest);
-
-        // 3️⃣ Generate HMAC
-        String generatedHash = null;
-        try {
-            generatedHash = hmacSha256(manifest, secret);
-        } catch (Exception e) {
-            throw new RuntimeException(e);
-        }
-        System.out.println("generatedHash: " + generatedHash);
-        System.out.println("originalHash: " + originalHash);
-
-        // 4️⃣ Constant-time comparison (seguridad)
-        return MessageDigest.isEqual(
-                generatedHash.getBytes(StandardCharsets.UTF_8),
-                originalHash.getBytes(StandardCharsets.UTF_8)
-        );
     }
 
 }

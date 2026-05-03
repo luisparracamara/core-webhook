@@ -22,22 +22,35 @@ public class SchedulerServiceImpl implements SchedulerService {
     private final Utils utils;
 
     @Override
-    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void processSingleEvent(WebhookEventEntity event) {
+        int claimed = webhookEventRepository.markAsProcessing(event.getId());
+        if (claimed == 0) {
+            log.debug("[SchedulerService] Event id={} already claimed by another instance — skipping", event.getId());
+            return;
+        }
+
+        log.info("[SchedulerService] Processing event id={} connector={} transactionId={} retryCount={}",
+                event.getId(), event.getConnector(), event.getTransactionId(), event.getRetryCount());
         try {
-            int claimed = webhookEventRepository.markAsProcessing(event.getId());
-            if (claimed != 0) {
-                log.info("[WebhookResilienceScheduler] Processing webhook event ID: {}", event.getId());
-                paymentRedirectorResolver.resolve(event.getConnector()).processTransaction(utils.jsonToMap(event.getHeaders()),
-                        event.getPayload());
-                webhookEventRepository.updateStatus(event.getId(), WebhookEventStatusEnum.COMPLETED);
-            }
+            processInTransaction(event);
+            webhookEventRepository.updateStatus(event.getId(), WebhookEventStatusEnum.COMPLETED.name());
+            log.info("[SchedulerService] Event id={} completed successfully", event.getId());
         } catch (CallNotPermittedException ex) {
-            webhookEventRepository.updateStatus(event.getId(), WebhookEventStatusEnum.FOR_REVIEW, 0, WebhookEventStatusEnum.DEAD);
+            log.warn("[SchedulerService] Event id={} circuit breaker OPEN — returning to FOR_REVIEW without incrementing retry: {}",
+                    event.getId(), ex.getMessage(), ex);
+            webhookEventRepository.updateStatus(event.getId(), WebhookEventStatusEnum.FOR_REVIEW.name(), 0, WebhookEventStatusEnum.DEAD.name());
         } catch (Exception ex) {
-            log.error("[WebhookResilienceScheduler] Event {} failed. Incrementing retry count and checking if it should be DEAD",
-                    event.getId(), ex);
-            webhookEventRepository.updateStatus(event.getId(), WebhookEventStatusEnum.FOR_REVIEW, 1, WebhookEventStatusEnum.DEAD);
+            log.error("[SchedulerService] Event id={} connector={} transactionId={} failed on retry #{} — {}",
+                    event.getId(), event.getConnector(), event.getTransactionId(), event.getRetryCount(), ex.getMessage(), ex);
+            webhookEventRepository.updateStatus(event.getId(), WebhookEventStatusEnum.FOR_REVIEW.name(), 1, WebhookEventStatusEnum.DEAD.name());
         }
     }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void processInTransaction(WebhookEventEntity event) {
+        log.debug("[SchedulerService] Executing transaction for event id={}", event.getId());
+        paymentRedirectorResolver.resolve(event.getConnector())
+                .processTransaction(utils.jsonToMap(event.getHeaders()), event.getPayload());
+    }
+
 }

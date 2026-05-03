@@ -11,7 +11,9 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "merchant_ledger")
+@Table(name = "merchant_ledger", uniqueConstraints = {
+        @UniqueConstraint(name = "uk_merchant_ledger_payment_fee", columnNames = "fk_ml_payment_fee_id")
+})
 @Data
 @AllArgsConstructor
 @NoArgsConstructor
@@ -28,9 +30,6 @@ public class MerchantLedgerEntity {
 
     @Column(nullable = false)
     private BigDecimal amount;
-
-    @Column(name = "balance_after", nullable = false)
-    private BigDecimal balanceAfter;
 
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;

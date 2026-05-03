@@ -24,7 +24,7 @@ public class GatewayMetadataEntity {
     private Gateway gateway;
 
     @ToString.Include
-    @Column(name = "key")
+    @Column(name = "`key`")
     private String metaKey;
 
     @ToString.Include

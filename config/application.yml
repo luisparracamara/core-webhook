@@ -25,14 +25,20 @@ spring:
             readTimeout: 10000
             loggerLevel: FULL
 
-  # 1. Datasource Configuration
+  # 1. Redis Configuration
+  data:
+    redis:
+      host: localhost
+      port: 6379
+
+  # 2. Datasource Configuration
   datasource:
     url: jdbc:mysql://localhost:3306/payments?useSSL=false&serverTimezone=UTC
     username: root
     password: root
     driver-class-name: com.mysql.cj.jdbc.Driver
 
-  # 2. JPA/Hibernate Configuration
+  # 3. JPA/Hibernate Configuration
   jpa:
     show-sql: true # Log SQL statements
     hibernate:
@@ -50,7 +56,7 @@ mercadopago:
 jobs:
   webhook-event:
     cron: "0 * * * * *"
-    #cron: "0 * * * * *"
+    batch-size: 50
 
 resilience4j:
   circuitbreaker:

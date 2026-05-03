@@ -13,11 +13,6 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 
-import javax.crypto.Mac;
-import javax.crypto.spec.SecretKeySpec;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -31,7 +26,8 @@ public class MercadoPagoCheckoutApi implements ConnectorService {
     private final String webhookSecret;
     private final boolean validateSignature;
 
-    public MercadoPagoCheckoutApi(Utils utils, PaymentService paymentService,
+    public MercadoPagoCheckoutApi(Utils utils,
+                                  PaymentService paymentService,
                                   @Value("${mercadopago.webhook.secret}") String webhookSecret,
                                   @Value("${mercadopago.webhook.validate-signature:true}") boolean validateSignature) {
         this.utils = utils;
@@ -48,14 +44,13 @@ public class MercadoPagoCheckoutApi implements ConnectorService {
     @Override
     public ResponseEntity<Void> processWebhook(HttpServletRequest request, String payload) {
         String dataId = request.getParameter("data.id");
-        String type = request.getParameter("type");
 
-        if (dataId == null || !"order".equalsIgnoreCase(type)) {
-            log.info("[MercadoPagoCheckoutApi] Skipping: missing data.id or type is not 'order'");
+        if (dataId == null) {
+            log.info("[MercadoPagoCheckoutApi] Skipping: missing data.id");
             return ResponseEntity.ok().build();
         }
 
-        if (validateSignature && !isValid(request, webhookSecret)) {
+        if (validateSignature && !MercadoPagoSignatureValidator.isValid(request, webhookSecret)) {
             log.warn("[MercadoPagoCheckoutApi] Invalid signature for data.id={}", dataId);
             return ResponseEntity.ok().build();
         }
@@ -68,42 +63,47 @@ public class MercadoPagoCheckoutApi implements ConnectorService {
         OrderWebhookEvent event = utils.fromJson(payload, OrderWebhookEvent.class);
 
         if (!"order".equalsIgnoreCase(event.getType()) || event.getData() == null) {
-            log.info("[MercadoPagoCheckoutApi] Skipping: event type is not 'order'");
+            log.info("[MercadoPagoCheckoutApi] Skipping: type={} is not 'order' or data is null", event.getType());
             return ResponseEntity.ok().build();
         }
 
         OrderWebhookEvent.DataNode data = event.getData();
         String orderId = data.getId();
-        log.debug("[MercadoPagoCheckoutApi] Order ID: {}, status: {}", orderId, data.getStatus());
 
         Optional<OrderMercadoPagoResponse.Payment> approvedPayment = findApprovedPayment(data);
 
         if (approvedPayment.isPresent()) {
-            log.info("[MercadoPagoCheckoutApi] Order {} approved, updating payment", orderId);
+            log.info("[MercadoPagoCheckoutApi] orderId={} status={} → APPROVED (paymentType={})",
+                    orderId, data.getStatus(), approvedPayment.get().getPaymentTypeId());
             paymentService.updatePaymentStatusByExternalReference(
                     orderId,
                     PaymentStatusEnum.APPROVED,
                     approvedPayment.get().getPaymentTypeId()
             );
         } else if ("failed".equalsIgnoreCase(data.getStatus())) {
-            log.info("[MercadoPagoCheckoutApi] Order {} failed, marking payment as CANCELLED", orderId);
+            log.info("[MercadoPagoCheckoutApi] orderId={} status={} statusDetail={} → CANCELLED",
+                    orderId, data.getStatus(), data.getStatusDetail());
             paymentService.updatePaymentStatusByExternalReference(
                     orderId,
                     PaymentStatusEnum.CANCELLED,
                     null
             );
+        } else {
+            log.info("[MercadoPagoCheckoutApi] orderId={} status={} — no action taken, waiting for final status",
+                    orderId, data.getStatus());
         }
 
-        log.info("[MercadoPagoCheckoutApi] Connector {} payment updated", getConnector());
         return ResponseEntity.ok().build();
     }
 
     private Optional<OrderMercadoPagoResponse.Payment> findApprovedPayment(OrderWebhookEvent.DataNode data) {
         if (data.getTransactions() == null) {
+            log.debug("[MercadoPagoCheckoutApi] orderId={} has no transactions yet", data.getId());
             return Optional.empty();
         }
         List<OrderMercadoPagoResponse.Payment> payments = data.getTransactions().getPayments();
         if (payments == null || payments.isEmpty()) {
+            log.debug("[MercadoPagoCheckoutApi] orderId={} transactions list is empty", data.getId());
             return Optional.empty();
         }
         return payments.stream()
@@ -112,66 +112,4 @@ public class MercadoPagoCheckoutApi implements ConnectorService {
                 .findFirst();
     }
 
-    private static boolean isValid(HttpServletRequest request, String secret) {
-        String xSignature = request.getHeader("x-signature");
-        String xRequestId = request.getHeader("x-request-id");
-        String dataId = request.getParameter("data.id");
-
-        if (xSignature == null || xRequestId == null || dataId == null) {
-            return false;
-        }
-
-        Map<String, String> signatureParts = parseSignature(xSignature);
-        String ts = signatureParts.get("ts");
-        String originalHash = signatureParts.get("v1");
-
-        if (ts == null || originalHash == null) {
-            return false;
-        }
-
-        String manifest = String.format("id:%s;request-id:%s;ts:%s;",
-                dataId.toLowerCase(), xRequestId, ts);
-
-        log.debug("[MercadoPagoCheckoutApi] x-signature ={}", xSignature);
-        log.debug("[MercadoPagoCheckoutApi] x-request-id={}", xRequestId);
-        log.debug("[MercadoPagoCheckoutApi] data.id(raw)={}", dataId);
-        log.debug("[MercadoPagoCheckoutApi] ts          ={}", ts);
-        log.debug("[MercadoPagoCheckoutApi] v1          ={}", originalHash);
-        log.debug("[MercadoPagoCheckoutApi] manifest    ={}", manifest);
-
-        try {
-            String generatedHash = hmacSha256(manifest, secret);
-            log.debug("[MercadoPagoCheckoutApi] generatedHash={}", generatedHash);
-            log.debug("[MercadoPagoCheckoutApi] originalHash ={}", originalHash);
-            return MessageDigest.isEqual(
-                    generatedHash.getBytes(StandardCharsets.UTF_8),
-                    originalHash.getBytes(StandardCharsets.UTF_8)
-            );
-        } catch (Exception e) {
-            log.error("[MercadoPagoCheckoutApi] Error computing HMAC: {}", e.getMessage());
-            return false;
-        }
-    }
-
-    private static Map<String, String> parseSignature(String xSignature) {
-        Map<String, String> map = new HashMap<>();
-        for (String part : xSignature.split(",")) {
-            String[] kv = part.split("=", 2);
-            if (kv.length == 2) {
-                map.put(kv[0].trim(), kv[1].trim());
-            }
-        }
-        return map;
-    }
-
-    private static String hmacSha256(String data, String secret) throws Exception {
-        Mac mac = Mac.getInstance("HmacSHA256");
-        mac.init(new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
-        byte[] raw = mac.doFinal(data.getBytes(StandardCharsets.UTF_8));
-        StringBuilder hex = new StringBuilder(raw.length * 2);
-        for (byte b : raw) {
-            hex.append(String.format("%02x", b));
-        }
-        return hex.toString();
-    }
 }

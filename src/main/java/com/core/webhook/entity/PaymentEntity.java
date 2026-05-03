@@ -61,15 +61,15 @@ public class PaymentEntity {
     @Column(name = "transaction_id")
     private String transactionId;
 
-    @ManyToOne
+    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "fk_pm_gateway_id")
     private Gateway gateway;
 
-    @ManyToOne
+    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "fk_pm_merchant_id")
     private Merchant merchant;
 
-    @ManyToOne
+    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "fk_pm_payer")
     private PayerEntity payerEntity;
 

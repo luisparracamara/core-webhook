@@ -18,7 +18,6 @@ import org.springframework.web.bind.annotation.*;
 public class Controller {
 
     private final RoutingService routingService;
-
     private final Utils utils;
 
     public Controller(RoutingService routingService, Utils utils) {
@@ -26,14 +25,12 @@ public class Controller {
         this.utils = utils;
     }
 
-    @PostMapping(path = "/v1/webhook/{provider}", consumes = {MediaType.APPLICATION_JSON_VALUE, MediaType.TEXT_PLAIN_VALUE} )
+    @PostMapping(path = "/v1/webhook/{provider}", consumes = {MediaType.APPLICATION_JSON_VALUE, MediaType.TEXT_PLAIN_VALUE})
     public ResponseEntity<Void> webhook(HttpServletRequest request, @PathVariable @NotNull String provider,
                                         @RequestBody @Nullable String payload) {
         log.debug("Request CONTROLLER provider: {} payload: {}", provider, payload);
         routingService.processWebhook(request, payload, provider);
         return ResponseEntity.ok().build();
     }
-
-
 
 }

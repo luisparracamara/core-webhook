@@ -11,7 +11,9 @@ import lombok.NoArgsConstructor;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "webhook_event")
+@Table(name = "webhook_event", indexes = {
+        @Index(name = "idx_webhook_event_status_retry", columnList = "status, retry_count")
+})
 @Data
 @AllArgsConstructor
 @NoArgsConstructor

@@ -12,18 +12,18 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(NotFoundException.class)
     public ResponseEntity<ErrorResponse> handleNotFound(NotFoundException ex) {
-        log.error("NotFoundException", ex);
+        log.error("NotFoundException: {}", ex.getMessage(), ex);
         return ResponseEntity
                 .status(HttpStatus.NOT_FOUND)
-                .body(new ErrorResponse("NOT_FOUND", ex.getMessage()));
+                .body(new ErrorResponse("NOT_FOUND", "Resource not found"));
     }
 
     @ExceptionHandler(InternalServerException.class)
-    public ResponseEntity<ErrorResponse> handleUnexpected(Exception ex) {
-        log.error("InternalServerException", ex);
+    public ResponseEntity<ErrorResponse> handleUnexpected(InternalServerException ex) {
+        log.error("InternalServerException: {}", ex.getMessage(), ex);
         return ResponseEntity
                 .status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body(new ErrorResponse("INTERNAL_SERVER_ERROR", ex.getMessage()));
+                .body(new ErrorResponse("INTERNAL_SERVER_ERROR", "An unexpected error occurred"));
     }
 
     public record ErrorResponse(

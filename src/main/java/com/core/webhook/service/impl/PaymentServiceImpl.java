@@ -14,13 +14,11 @@ import com.core.webhook.repository.PaymentRepository;
 import com.core.webhook.repository.WebhookEventRepository;
 import com.core.webhook.service.PaymentService;
 import com.core.webhook.utils.Utils;
-import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.Map;
 
@@ -38,32 +36,34 @@ public class PaymentServiceImpl implements PaymentService {
     @Override
     @Transactional
     public void updatePaymentStatusByExternalReference(String externalReference, PaymentStatusEnum status, String paymentType) {
-        PaymentCashinEntity paymentCashin = paymentCashinRepository.findByExternalReference(externalReference)
-                .orElse(PaymentCashinEntity.builder().build());
-
-        PaymentEntity payment = paymentCashin.getPaymentEntity();
+        PaymentEntity payment = paymentCashinRepository.findByExternalReference(externalReference)
+                .map(PaymentCashinEntity::getPaymentEntity)
+                .orElse(null);
 
         if (payment == null) {
-            log.warn("[PaymentService] No payment found for externalReference={}", externalReference);
-        } else if (!payment.getStatus().equals(PaymentStatusEnum.APPROVED)) {
-            PaymentStatusEnum previousStatus = payment.getStatus();
-            paymentRepository.save(updatePaymentStatus(payment, status, paymentType));
-            log.info("[PaymentService] paymentId={} externalReference={} status {} -> {} paymentType={}",
-                    payment.getId(), externalReference, previousStatus, status, paymentType);
-            if (PaymentStatusEnum.APPROVED.equals(status)) {
-                BigDecimal lastBalance = merchantLedgerRepository.findLastBalanceForUpdate(payment.getMerchant().getId())
-                        .orElse(BigDecimal.ZERO);
-                merchantLedgerRepository.save(buildMerchantLedger(payment, lastBalance));
-                log.info("[PaymentService] Ledger created for paymentId={} merchantId={}", payment.getId(), payment.getMerchant().getId());
-            }
-        } else {
-            log.info("[PaymentService] paymentId={} externalReference={} already APPROVED, skipping",
+            log.warn("[PaymentService] No payment_cashin found for externalReference={} — skipping update", externalReference);
+            return;
+        }
+
+        int updated = paymentRepository.updateStatusIfNotApproved(payment.getId(), status, paymentType, LocalDateTime.now());
+
+        if (updated == 0) {
+            log.info("[PaymentService] paymentId={} externalReference={} already APPROVED — skipping duplicate update",
                     payment.getId(), externalReference);
+            return;
+        }
+
+        log.info("[PaymentService] paymentId={} externalReference={} status → {} paymentType={}",
+                payment.getId(), externalReference, status, paymentType);
+
+        if (PaymentStatusEnum.APPROVED.equals(status)) {
+            creditMerchantLedger(payment);
         }
     }
 
     @Override
     public void createWebhookEvent(ConnectorEnum connector, String transactionId, String payload, Map<String, String> headers) {
+        log.info("[PaymentService] Queuing webhook event for retry — connector={} transactionId={}", connector, transactionId);
         LocalDateTime now = LocalDateTime.now();
         WebhookEventEntity webhookEventEntity = WebhookEventEntity.builder()
                 .connector(connector)
@@ -76,26 +76,21 @@ public class PaymentServiceImpl implements PaymentService {
                 .updatedAt(now)
                 .build();
         webhookEventRepository.save(webhookEventEntity);
+        log.debug("[PaymentService] WebhookEvent saved id={} connector={} transactionId={}",
+                webhookEventEntity.getId(), connector, transactionId);
     }
 
-    private PaymentEntity updatePaymentStatus(PaymentEntity payment, PaymentStatusEnum status, String paymentType) {
-        payment.setStatus(status);
-        payment.setPaymentType(paymentType);
-        return payment;
-    }
-
-    private MerchantLedgerEntity buildMerchantLedger(PaymentEntity payment, BigDecimal lastBalance) {
-        BigDecimal feeAmount = payment.getPaymentFeeEntity().getFeeAmount();
-        lastBalance = lastBalance.add(feeAmount);
-        return MerchantLedgerEntity.builder()
+    private void creditMerchantLedger(PaymentEntity payment) {
+        merchantLedgerRepository.save(MerchantLedgerEntity.builder()
                 .merchantId(payment.getMerchant().getId())
-                .amount(feeAmount)
-                .balanceAfter(lastBalance)
+                .amount(payment.getPaymentFeeEntity().getFeeAmount())
                 .createdAt(LocalDateTime.now())
                 .operation(PaymentFeeMerchantEnum.CREDIT)
                 .paymentFee(payment.getPaymentFeeEntity())
                 .merchantPaymentEntity(null)
-                .build();
+                .build());
+        log.info("[PaymentService] Ledger credited for paymentId={} merchantId={} amount={}",
+                payment.getId(), payment.getMerchant().getId(), payment.getPaymentFeeEntity().getFeeAmount());
     }
 
 }

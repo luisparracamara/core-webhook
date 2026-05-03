@@ -5,48 +5,53 @@ import com.core.webhook.entity.WebhookEventEntity;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
 public interface WebhookEventRepository extends JpaRepository<WebhookEventEntity, Long> {
 
     @Query(value = """
-            SELECT *
-            FROM webhook_event
+            SELECT * FROM webhook_event
             WHERE status = 'FOR_REVIEW'
             AND retry_count < 10
+            ORDER BY webhook_event_id ASC
+            LIMIT :limit
             """, nativeQuery = true)
-    List<WebhookEventEntity> findWebhookEvents();
+    List<WebhookEventEntity> findWebhookEvents(@Param("limit") int limit);
 
-    @Modifying
+    @Modifying(clearAutomatically = true)
+    @Transactional
     @Query(value = """
-            UPDATE WebhookEventEntity e
-            SET e.status = :status
-            WHERE e.id = :id
-            """)
-    void updateStatus(Long id, WebhookEventStatusEnum status);
+            UPDATE webhook_event
+            SET status = :status
+            WHERE webhook_event_id = :id
+            """, nativeQuery = true)
+    void updateStatus(@Param("id") Long id, @Param("status") String status);
 
-    @Modifying
-    @Query("""
-            UPDATE WebhookEventEntity e
-            SET e.status = 'PROCESSING'
-            WHERE e.id = :id
-            AND e.status = 'FOR_REVIEW'
-            AND e.retryCount < 10
-            """)
-    int markAsProcessing(Long id);
+    @Modifying(clearAutomatically = true)
+    @Transactional
+    @Query(value = """
+            UPDATE webhook_event
+            SET status = 'PROCESSING'
+            WHERE webhook_event_id = :id
+            AND status = 'FOR_REVIEW'
+            AND retry_count < 10
+            """, nativeQuery = true)
+    int markAsProcessing(@Param("id") Long id);
 
-
-    @Modifying
-    @Query("""
-    UPDATE WebhookEventEntity e
-    SET e.retryCount = e.retryCount + :retry,
-        e.status = CASE
-            WHEN (e.retryCount + :retry) > 10 THEN :deadStatus
-            ELSE :status
-        END
-    WHERE e.id = :id
-    """)
-    void updateStatus(Long id, WebhookEventStatusEnum status, int retry, WebhookEventStatusEnum deadStatus);
+    @Modifying(clearAutomatically = true)
+    @Transactional
+    @Query(value = """
+            UPDATE webhook_event
+            SET retry_count = retry_count + :retry,
+                status = CASE
+                    WHEN (retry_count + :retry) > 10 THEN :deadStatus
+                    ELSE :status
+                END
+            WHERE webhook_event_id = :id
+            """, nativeQuery = true)
+    void updateStatus(@Param("id") Long id, @Param("status") String status, @Param("retry") int retry, @Param("deadStatus") String deadStatus);
 
 }

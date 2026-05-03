@@ -20,17 +20,17 @@ public class Utils {
     private final ObjectMapper mapper;
 
     public Utils() {
-        this.mapper = new ObjectMapper();
+        this.mapper = new ObjectMapper()
+                .registerModule(new JavaTimeModule())
+                .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
     }
 
     public String toJson(Object obj) {
         try {
-            mapper.registerModule(new JavaTimeModule());
-            mapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
             return mapper.writeValueAsString(obj);
         } catch (Exception e) {
             log.error("Failed to serialize object to JSON {}", e.getMessage());
-            throw new InternalServerException("Failed to serialize object to JSON: "+ e);
+            throw new InternalServerException("Failed to serialize object to JSON: " + e);
         }
     }
 
@@ -39,9 +39,7 @@ public class Utils {
             return mapper.readValue(json, object);
         } catch (Exception e) {
             log.error("Failed to deserialize JSON to {}", object.getSimpleName(), e);
-            throw new InternalServerException(
-                    "Failed to deserialize JSON to " + object.getSimpleName(), e
-            );
+            throw new InternalServerException("Failed to deserialize JSON to " + object.getSimpleName(), e);
         }
     }
 
@@ -50,13 +48,12 @@ public class Utils {
             return mapper.readValue(json, new TypeReference<>() {});
         } catch (Exception e) {
             log.error("Failed to deserialize JSON to Map", e);
-            throw new InternalServerException("Failed to deserialize JSON to Map: "+ e);
+            throw new InternalServerException("Failed to deserialize JSON to Map: " + e);
         }
     }
 
     public Map<String, String> extractHeaders(HttpServletRequest request) {
         Map<String, String> headers = new HashMap<>();
-
         Enumeration<String> headerNames = request.getHeaderNames();
         if (headerNames != null) {
             while (headerNames.hasMoreElements()) {
@@ -64,9 +61,7 @@ public class Utils {
                 headers.put(headerName, request.getHeader(headerName));
             }
         }
-
         return headers;
     }
-
 
 }
